@@ -248,4 +248,42 @@ mod tests {
             .framing_method(),
         );
     }
+
+    #[test]
+    fn framing_method_chunked() {
+        assert_eq!(
+            FramingMethod::Chunked,
+            ReqHead {
+                method: Method::GET,
+                uri: "/".parse().unwrap(),
+                version: Version::HTTP_11,
+                headers: vec![(
+                    TRANSFER_ENCODING,
+                    HeaderValue::from_static("chunked")
+                )]
+                .into_iter()
+                .collect(),
+            }
+            .framing_method(),
+        );
+    }
+
+    #[test]
+    fn framing_method_content_length() {
+        assert_eq!(
+            FramingMethod::ContentLength(100),
+            ReqHead {
+                method: Method::GET,
+                uri: "/".parse().unwrap(),
+                version: Version::HTTP_11,
+                headers: vec![(
+                    CONTENT_LENGTH,
+                    HeaderValue::from_static("100")
+                )]
+                .into_iter()
+                .collect(),
+            }
+            .framing_method(),
+        );
+    }
 }
