@@ -16,6 +16,22 @@ pub fn can_keep_alive(version: Version, headers: &HeaderMap) -> bool {
         }))
 }
 
+pub fn is_chunked(headers: &HeaderMap) -> bool {
+    use http::header::TRANSFER_ENCODING;
+
+    headers
+        .get_all(TRANSFER_ENCODING)
+        .iter()
+        .next_back()
+        .and_then(|v| str::from_utf8(v.as_bytes()).ok())
+        .and_then(|s| {
+            s.rsplit(',')
+                .next()
+                .map(|tok| tok.trim().eq_ignore_ascii_case("chunked"))
+        })
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -50,5 +66,19 @@ mod tests {
     #[test]
     fn http_10_disables_keep_alive() {
         assert!(!can_keep_alive(Version::HTTP_10, &HeaderMap::new()));
+    }
+
+    #[test]
+    fn is_chunked_with_header() {
+        assert!(is_chunked(
+            &vec![(TRANSFER_ENCODING, HeaderValue::from_static("chunked"))]
+                .into_iter()
+                .collect()
+        ));
+    }
+
+    #[test]
+    fn is_not_chunked_without_header() {
+        assert!(!is_chunked(&HeaderMap::new()));
     }
 }
