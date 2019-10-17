@@ -32,6 +32,14 @@ pub fn is_chunked(headers: &HeaderMap) -> bool {
         .unwrap_or(false)
 }
 
+pub fn maybe_content_length(headers: &HeaderMap) -> Option<usize> {
+    use http::header::CONTENT_LENGTH;
+
+    headers
+        .get(CONTENT_LENGTH)
+        .and_then(|tok| tok.to_str().ok().and_then(|s| s.parse().ok()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,5 +88,22 @@ mod tests {
     #[test]
     fn is_not_chunked_without_header() {
         assert!(!is_chunked(&HeaderMap::new()));
+    }
+
+    #[test]
+    fn maybe_content_length_none_on_no_header() {
+        assert!(maybe_content_length(&HeaderMap::new()).is_none());
+    }
+
+    #[test]
+    fn maybe_content_length_parses_decimal() {
+        assert_eq!(
+            Some(100),
+            maybe_content_length(
+                &vec![(CONTENT_LENGTH, HeaderValue::from_static("100"))]
+                    .into_iter()
+                    .collect()
+            )
+        );
     }
 }
