@@ -145,4 +145,107 @@ mod tests {
                 .expect("complete request")
         );
     }
+
+    #[test]
+    fn parse_http_10_request() {
+        let req_text = &b"HEAD /foo HTTP/1.0\r\n\
+                       Some: header\r\n\r\n"[..];
+        assert_eq!(
+            ReqHead {
+                method: Method::HEAD,
+                uri: "/foo".parse().unwrap(),
+                version: Version::HTTP_10,
+                headers: vec![(
+                    HeaderName::from_lowercase(b"some")
+                        .expect("invalid header name"),
+                    HeaderValue::from_static("header")
+                ),]
+                .into_iter()
+                .collect(),
+            },
+            ReqHead::from_buf(&mut req_text.into())
+                .expect("parsed request")
+                .expect("complete request")
+        );
+    }
+
+    #[test]
+    fn parse_http_10_no_headers_request() {
+        let req_text = &b"HEAD /foo HTTP/1.0\r\n\r\n"[..];
+        assert_eq!(
+            ReqHead {
+                method: Method::HEAD,
+                uri: "/foo".parse().unwrap(),
+                version: Version::HTTP_10,
+                headers: HeaderMap::new(),
+            },
+            ReqHead::from_buf(&mut req_text.into())
+                .expect("parsed request")
+                .expect("complete request")
+        );
+    }
+
+    #[test]
+    fn parse_reject_folding() {
+        let req_text = &b"HEAD /foo HTTP/1.1\r\n  folded: header\r\n\r\n"[..];
+        assert!(ReqHead::from_buf(&mut req_text.into()).is_err());
+    }
+
+    #[test]
+    fn parse_reject_space_before_colon() {
+        let req_text = &b"HEAD /foo HTTP/1.1\r\n\
+                       foo : line\r\n\r\n"[..];
+        assert!(ReqHead::from_buf(&mut req_text.into()).is_err());
+    }
+
+    #[test]
+    fn parse_reject_ht_before_colon() {
+        let req_text = &b"HEAD /foo HTTP/1.1\r\n\
+                       foo\t: line\r\n\r\n"[..];
+        assert!(ReqHead::from_buf(&mut req_text.into()).is_err());
+    }
+
+    #[test]
+    fn parse_reject_empty_header_name() {
+        let req_text = &b"HEAD /foo HTTP/1.1\r\n\
+                       : line\r\n\r\n"[..];
+        assert!(ReqHead::from_buf(&mut req_text.into()).is_err());
+    }
+
+    #[test]
+    fn write_simple_req() {
+        let out_buf: Bytes = b"GET /a HTTP/1.1\r\n\
+                             host: example.com\r\n\
+                             connection: close\r\n\r\n"[..]
+            .into();
+        assert_eq!(
+            out_buf,
+            ReqHead {
+                method: Method::GET,
+                uri: "/a".parse().unwrap(),
+                version: Version::HTTP_11,
+                headers: vec![
+                    (HOST, HeaderValue::from_static("example.com")),
+                    (CONNECTION, HeaderValue::from_static("close")),
+                ]
+                .into_iter()
+                .collect(),
+            }
+            .write_to_buf(&mut BytesMut::new())
+        );
+    }
+
+    #[test]
+    fn framing_method_no_headers() {
+        assert_eq!(
+            FramingMethod::ContentLength(0),
+            ReqHead {
+                method: Method::GET,
+                uri: "/".parse().unwrap(),
+                version: Version::HTTP_11,
+                headers: HeaderMap::new(),
+            }
+            .framing_method(),
+        );
+    }
 }
