@@ -18,14 +18,14 @@ pub enum Client {}
 #[allow(clippy::empty_enum)]
 pub enum Server {}
 
-pub struct HttpConn<R> {
+pub struct HttpConn<Role> {
     inner: Inner,
     peer_http_version: Option<Version>,
     body_reader: Option<BodyReader>,
-    pd: PhantomData<R>,
+    pd: PhantomData<Role>,
 }
 
-impl<R> HttpConn<R> {
+impl<Role> HttpConn<Role> {
     pub fn from_bufs(
         max_event_size: usize,
         in_buf: BytesMut,
@@ -43,7 +43,7 @@ impl<R> HttpConn<R> {
         self.inner.into_bufs()
     }
 
-    pub fn read_from<Rd: Read>(&mut self, r: &mut Rd) -> Result<usize, Error> {
+    pub fn read_from<R: Read>(&mut self, r: &mut R) -> Result<usize, Error> {
         self.inner.read_from(r)
     }
 }
