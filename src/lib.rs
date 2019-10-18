@@ -15,3 +15,6 @@ mod state;
 mod util;
 
 pub use conn::{Client, HttpConn, Server};
+pub use event::Event;
+pub use req::ReqHead;
+pub use resp::RespHead;

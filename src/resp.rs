@@ -57,7 +57,7 @@ impl RespHead {
         }))
     }
 
-    pub fn write_to_buf(&self, buf: &mut BytesMut) -> Bytes {
+    pub(crate) fn write_to_buf(&self, buf: &mut BytesMut) -> Bytes {
         let mut n = 0;
         if self.version == Version::HTTP_11 {
             buf.extend_from_slice(b"HTTP/1.1");
@@ -92,7 +92,7 @@ impl RespHead {
         buf.split_to(n).freeze()
     }
 
-    pub fn can_keep_alive(&self) -> bool {
+    pub(crate) fn can_keep_alive(&self) -> bool {
         can_keep_alive(self.version, &self.headers)
     }
 

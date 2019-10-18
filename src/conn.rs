@@ -26,7 +26,7 @@ pub struct HttpConn<R> {
 }
 
 impl<R> HttpConn<R> {
-    fn from_bufs(
+    pub fn from_bufs(
         max_event_size: usize,
         in_buf: BytesMut,
         out_buf: BytesMut,
@@ -39,29 +39,29 @@ impl<R> HttpConn<R> {
         }
     }
 
-    fn into_bufs(self) -> (BytesMut, BytesMut) {
+    pub fn into_bufs(self) -> (BytesMut, BytesMut) {
         self.inner.into_bufs()
     }
 
-    fn read_from<Rd: Read>(&mut self, r: &mut Rd) -> Result<usize, Error> {
+    pub fn read_from<Rd: Read>(&mut self, r: &mut Rd) -> Result<usize, Error> {
         self.inner.read_from(r)
     }
 }
 
 impl HttpConn<Client> {
-    fn send_req(&mut self, req: ReqHead) -> Result<Bytes, Error> {
+    pub fn send_req(&mut self, req: ReqHead) -> Result<Bytes, Error> {
         let event = Event::Request(req);
         self.inner.client_event(&event)?;
         Ok(self.inner.write_event(event))
     }
 
-    fn send_data(&mut self, data: Bytes) -> Result<Bytes, Error> {
+    pub fn send_data(&mut self, data: Bytes) -> Result<Bytes, Error> {
         let event = Event::Data(data);
         self.inner.client_event(&event)?;
         Ok(self.inner.write_event(event))
     }
 
-    fn send_end_of_message(
+    pub fn send_end_of_message(
         &mut self,
         headers: Option<HeaderMap>,
     ) -> Result<Bytes, Error> {
@@ -70,7 +70,7 @@ impl HttpConn<Client> {
         Ok(self.inner.write_event(event))
     }
 
-    fn send_connection_closed(&mut self) -> Result<Bytes, Error> {
+    pub fn send_connection_closed(&mut self) -> Result<Bytes, Error> {
         self.inner.client_event(&Event::ConnectionClosed)?;
         Ok(Bytes::new())
     }

@@ -63,7 +63,7 @@ impl ReqHead {
         }))
     }
 
-    pub fn write_to_buf(&self, buf: &mut BytesMut) -> Bytes {
+    pub(crate) fn write_to_buf(&self, buf: &mut BytesMut) -> Bytes {
         let mut n = 0;
         buf.extend_from_slice(self.method.as_str().as_bytes());
         n += self.method.as_str().len();
@@ -102,7 +102,7 @@ impl ReqHead {
         buf.split_to(n).freeze()
     }
 
-    pub fn can_keep_alive(&self) -> bool {
+    pub(crate) fn can_keep_alive(&self) -> bool {
         can_keep_alive(self.version, &self.headers)
     }
 

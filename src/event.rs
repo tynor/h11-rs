@@ -17,7 +17,7 @@ pub enum Event {
 }
 
 impl Event {
-    pub fn to_state_event(&self) -> StateEvent {
+    pub(crate) fn to_state_event(&self) -> StateEvent {
         use self::StateEvent::*;
 
         match *self {
@@ -30,7 +30,7 @@ impl Event {
         }
     }
 
-    pub fn into_buf(self, buf: &mut BytesMut) -> Bytes {
+    pub(crate) fn into_buf(self, buf: &mut BytesMut) -> Bytes {
         use self::Event::*;
 
         match self {
