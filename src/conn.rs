@@ -52,6 +52,12 @@ impl<Role> HttpConn<Role> {
     }
 }
 
+impl<Role> Default for HttpConn<Role> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HttpConn<Client> {
     pub fn send_req(&mut self, req: ReqHead) -> Result<Bytes, Error> {
         let event = Event::Request(req);
@@ -76,6 +82,40 @@ impl HttpConn<Client> {
 
     pub fn send_connection_closed(&mut self) -> Result<Bytes, Error> {
         self.inner.client_event(&Event::ConnectionClosed)?;
+        Ok(Bytes::new())
+    }
+}
+
+impl HttpConn<Server> {
+    pub fn send_info_resp(&mut self, resp: RespHead) -> Result<Bytes, Error> {
+        let event = Event::InfoResponse(resp);
+        self.inner.server_event(&event)?;
+        Ok(self.inner.write_event(event))
+    }
+
+    pub fn send_resp(&mut self, resp: RespHead) -> Result<Bytes, Error> {
+        let event = Event::Response(resp);
+        self.inner.server_event(&event)?;
+        Ok(self.inner.write_event(event))
+    }
+
+    pub fn send_data(&mut self, data: Bytes) -> Result<Bytes, Error> {
+        let event = Event::Data(data);
+        self.inner.server_event(&event)?;
+        Ok(self.inner.write_event(event))
+    }
+
+    pub fn send_end_of_message(
+        &mut self,
+        headers: Option<HeaderMap>,
+    ) -> Result<Bytes, Error> {
+        let event = Event::EndOfMessage(headers);
+        self.inner.server_event(&event)?;
+        Ok(self.inner.write_event(event))
+    }
+
+    pub fn send_connection_closed(&mut self) -> Result<Bytes, Error> {
+        self.inner.server_event(&Event::ConnectionClosed)?;
         Ok(Bytes::new())
     }
 }
