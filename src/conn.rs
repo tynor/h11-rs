@@ -26,6 +26,10 @@ pub struct HttpConn<Role> {
 }
 
 impl<Role> HttpConn<Role> {
+    pub fn new() -> Self {
+        Self::from_bufs(8192, BytesMut::new(), BytesMut::new())
+    }
+
     pub fn from_bufs(
         max_event_size: usize,
         in_buf: BytesMut,
