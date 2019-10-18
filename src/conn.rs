@@ -10,7 +10,7 @@ use crate::body::BodyReader;
 use crate::event::Event;
 use crate::req::ReqHead;
 use crate::resp::RespHead;
-use crate::state::{State, SwitchEvent};
+use crate::state::{self, State, SwitchEvent};
 
 #[allow(clippy::empty_enum)]
 pub enum Client {}
@@ -21,7 +21,6 @@ pub enum Server {}
 pub struct HttpConn<Role> {
     inner: Inner,
     peer_http_version: Option<Version>,
-    body_reader: Option<BodyReader>,
     pd: PhantomData<Role>,
 }
 
@@ -38,7 +37,6 @@ impl<Role> HttpConn<Role> {
         Self {
             inner: Inner::from_bufs(max_event_size, in_buf, out_buf),
             peer_http_version: None,
-            body_reader: None,
             pd: PhantomData,
         }
     }
@@ -87,6 +85,10 @@ impl HttpConn<Client> {
 }
 
 impl HttpConn<Server> {
+    pub fn next_event(&mut self) -> Result<Option<Event>, Error> {
+        self.inner.next_client_event()
+    }
+
     pub fn send_info_resp(&mut self, resp: RespHead) -> Result<Bytes, Error> {
         let event = Event::InfoResponse(resp);
         self.inner.server_event(&event)?;
@@ -127,6 +129,7 @@ struct Inner {
     in_buf_closed: bool,
     out_buf: BytesMut,
     client_wants_continue: bool,
+    body_reader: Option<BodyReader>,
 }
 
 impl Inner {
@@ -142,11 +145,46 @@ impl Inner {
             in_buf_closed: false,
             out_buf,
             client_wants_continue: false,
+            body_reader: None,
         }
     }
 
     fn into_bufs(self) -> (BytesMut, BytesMut) {
         (self.in_buf, self.out_buf)
+    }
+
+    fn next_client_event(&mut self) -> Result<Option<Event>, Error> {
+        use state::Client::*;
+
+        match self.state.states().0 {
+            Idle => match ReqHead::from_buf(&mut self.in_buf) {
+                Ok(Some(r)) => {
+                    let br = BodyReader::from(r.framing_method());
+                    let event = Event::Request(r);
+                    self.client_event(&event)?;
+                    self.body_reader = Some(br);
+                    Ok(Some(event))
+                }
+                Ok(None) => Ok(None),
+                Err(e) => {
+                    self.state = self.state.client_error();
+                    Err(e)
+                }
+            },
+            SendBody => {
+                let br = self.body_reader.as_mut().expect("reading body");
+                if !self.in_buf.is_empty() {
+                    br.next_event(&mut self.in_buf)
+                } else if self.in_buf_closed {
+                    br.eof().map(Some)
+                } else {
+                    Ok(None)
+                }
+            }
+            Error => Err(format_err!("client in error state")),
+            Done | MustClose | Closed | MightSwitchProtocol
+            | SwitchedProtocol => Ok(None),
+        }
     }
 
     fn read_from<R: Read>(&mut self, r: &mut R) -> Result<usize, Error> {

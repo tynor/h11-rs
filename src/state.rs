@@ -87,11 +87,11 @@ impl Server {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct State {
+pub(crate) struct State {
     client: Client,
     server: Server,
     keep_alive: bool,
-    pub pending_connect: bool,
+    pub(crate) pending_connect: bool,
     pending_upgrade: bool,
 }
 
@@ -106,7 +106,7 @@ impl State {
         }
     }
 
-    fn states(self) -> (Client, Server) {
+    pub fn states(self) -> (Client, Server) {
         (self.client, self.server)
     }
 

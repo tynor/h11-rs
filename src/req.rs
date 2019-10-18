@@ -17,7 +17,7 @@ pub struct ReqHead {
 }
 
 impl ReqHead {
-    fn from_buf(buf: &mut BytesMut) -> Result<Option<Self>, Error> {
+    pub(crate) fn from_buf(buf: &mut BytesMut) -> Result<Option<Self>, Error> {
         let buf = match find_bytes(buf, &b"\r\n\r\n"[..]) {
             Some(n) => buf.split_to(n + 4).freeze(),
             None => return Ok(None),
@@ -106,7 +106,7 @@ impl ReqHead {
         can_keep_alive(self.version, &self.headers)
     }
 
-    fn framing_method(&self) -> FramingMethod {
+    pub(crate) fn framing_method(&self) -> FramingMethod {
         if is_chunked(&self.headers) {
             FramingMethod::Chunked
         } else {

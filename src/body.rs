@@ -73,7 +73,7 @@ pub enum BodyReader {
 }
 
 impl BodyReader {
-    fn next_event(
+    pub(crate) fn next_event(
         &mut self,
         buf: &mut BytesMut,
     ) -> Result<Option<Event>, Error> {
@@ -84,7 +84,7 @@ impl BodyReader {
         }
     }
 
-    fn eof(&self) -> Result<Event, Error> {
+    pub(crate) fn eof(&self) -> Result<Event, Error> {
         match *self {
             Self::ContentLength(_) | Self::Chunked(_) => {
                 Err(format_err!("connection closed before finishing body"))
