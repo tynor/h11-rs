@@ -91,7 +91,7 @@ pub struct State {
     client: Client,
     server: Server,
     keep_alive: bool,
-    pending_connect: bool,
+    pub pending_connect: bool,
     pending_upgrade: bool,
 }
 
