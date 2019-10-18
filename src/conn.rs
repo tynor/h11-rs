@@ -20,7 +20,6 @@ pub enum Server {}
 
 pub struct HttpConn<Role> {
     inner: Inner,
-    peer_http_version: Option<Version>,
     pd: PhantomData<Role>,
 }
 
@@ -36,7 +35,6 @@ impl<Role> HttpConn<Role> {
     ) -> Self {
         Self {
             inner: Inner::from_bufs(max_event_size, in_buf, out_buf),
-            peer_http_version: None,
             pd: PhantomData,
         }
     }
@@ -130,6 +128,7 @@ struct Inner {
     out_buf: BytesMut,
     client_wants_continue: bool,
     body_reader: Option<BodyReader>,
+    peer_http_version: Option<Version>,
 }
 
 impl Inner {
@@ -146,6 +145,7 @@ impl Inner {
             out_buf,
             client_wants_continue: false,
             body_reader: None,
+            peer_http_version: None,
         }
     }
 
