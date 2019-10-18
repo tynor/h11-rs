@@ -37,7 +37,7 @@ pub mod writer {
 
     fn write_chunked_chunk(
         buf: &mut BytesMut,
-        data: Bytes,
+        data: &Bytes,
     ) -> Result<Bytes, Error> {
         if buf.capacity() < (4 + size_of::<usize>() + data.len()) {
             buf.reserve(4 + size_of::<usize>() + data.len());
@@ -52,7 +52,7 @@ pub mod writer {
             };
             buf.advance_mut(n);
         }
-        buf.extend_from_slice(&data);
+        buf.extend_from_slice(data);
         buf.extend_from_slice(b"\r\n");
         Ok(buf.take().freeze())
     }
@@ -78,20 +78,18 @@ impl BodyReader {
         buf: &mut BytesMut,
     ) -> Result<Option<Event>, Error> {
         match *self {
-            BodyReader::ContentLength(ref mut r) => r.next_event(buf),
-            BodyReader::Chunked(ref mut r) => r.next_event(buf),
-            BodyReader::Http10 => Http10::next_event(buf),
+            Self::ContentLength(ref mut r) => r.next_event(buf),
+            Self::Chunked(ref mut r) => r.next_event(buf),
+            Self::Http10 => Http10::next_event(buf),
         }
     }
 
     fn eof(&self) -> Result<Event, Error> {
-        use self::BodyReader::*;
-
         match *self {
-            ContentLength(_) | Chunked(_) => {
+            Self::ContentLength(_) | Self::Chunked(_) => {
                 Err(format_err!("connection closed before finishing body"))
             }
-            BodyReader::Http10 => Ok(Event::EndOfMessage(None)),
+            Self::Http10 => Ok(Event::EndOfMessage(None)),
         }
     }
 }
@@ -100,10 +98,10 @@ impl From<FramingMethod> for BodyReader {
     fn from(m: FramingMethod) -> Self {
         match m {
             FramingMethod::ContentLength(n) => {
-                BodyReader::ContentLength(ContentLength(n))
+                Self::ContentLength(ContentLength(n))
             }
-            FramingMethod::Chunked => BodyReader::Chunked(Chunked::Start),
-            FramingMethod::Http10 => BodyReader::Http10,
+            FramingMethod::Chunked => Self::Chunked(Chunked::Start),
+            FramingMethod::Http10 => Self::Http10,
         }
     }
 }
@@ -144,7 +142,7 @@ struct HeaderPos {
 
 impl HeaderPos {
     fn new() -> Self {
-        HeaderPos {
+        Self {
             name: (0, 0),
             value: (0, 0),
         }

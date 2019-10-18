@@ -55,7 +55,7 @@ impl ReqHead {
             headers.append(name, value);
         }
 
-        Ok(Some(ReqHead {
+        Ok(Some(Self {
             method,
             uri,
             version,

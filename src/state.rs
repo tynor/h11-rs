@@ -34,13 +34,12 @@ impl Client {
         use self::StateEvent::*;
 
         Ok(match (self, event) {
-            (Idle, Request) => SendBody,
-            (Idle, ConnectionClosed) => Closed,
-            (SendBody, Data) => SendBody,
+            (Idle, Request) | (SendBody, Data) => SendBody,
             (SendBody, EndOfMessage) => Done,
-            (Done, ConnectionClosed) => Closed,
-            (MustClose, ConnectionClosed) => Closed,
-            (Closed, ConnectionClosed) => Closed,
+            (Idle, ConnectionClosed)
+            | (Done, ConnectionClosed)
+            | (MustClose, ConnectionClosed)
+            | (Closed, ConnectionClosed) => Closed,
             _ => return Err(format_err!("invalid state transition")),
         })
     }
@@ -69,18 +68,19 @@ impl Server {
         use self::SwitchEvent::*;
 
         Ok(match (self, event, switch) {
-            (Idle, ConnectionClosed, None) => Closed,
-            (Idle, Response, None) => SendBody,
-            (Idle, Request, None) => SendResponse,
-            (SendResponse, InfoResponse, None) => SendResponse,
-            (SendResponse, Response, None) => SendBody,
-            (SendResponse, InfoResponse, Some(Upgrade)) => SwitchedProtocol,
-            (SendResponse, Response, Some(Connect)) => SwitchedProtocol,
-            (SendBody, Data, None) => SendBody,
+            (Idle, Request, None) | (SendResponse, InfoResponse, None) => {
+                SendResponse
+            }
+            (SendResponse, InfoResponse, Some(Upgrade))
+            | (SendResponse, Response, Some(Connect)) => SwitchedProtocol,
+            (Idle, Response, None)
+            | (SendResponse, Response, None)
+            | (SendBody, Data, None) => SendBody,
             (SendBody, EndOfMessage, None) => Done,
-            (Done, ConnectionClosed, None) => Closed,
-            (MustClose, ConnectionClosed, None) => Closed,
-            (Closed, ConnectionClosed, None) => Closed,
+            (Idle, ConnectionClosed, None)
+            | (Done, ConnectionClosed, None)
+            | (MustClose, ConnectionClosed, None)
+            | (Closed, ConnectionClosed, None) => Closed,
             _ => return Err(format_err!("invalid state transition")),
         })
     }
@@ -97,7 +97,7 @@ pub struct State {
 
 impl State {
     pub fn new() -> Self {
-        State {
+        Self {
             client: Client::Idle,
             server: Server::Idle,
             keep_alive: true,
@@ -111,7 +111,7 @@ impl State {
     }
 
     pub fn client_event(self, event: StateEvent) -> Result<Self, Error> {
-        Ok(State {
+        Ok(Self {
             client: self.client.send(event)?,
             server: if event == StateEvent::Request {
                 self.server.send(StateEvent::Request, None)?
@@ -137,7 +137,7 @@ impl State {
             }
             _ => {}
         }
-        Ok(State {
+        Ok(Self {
             server: self.server.send(event, switch)?,
             pending_connect: if switch.is_none()
                 && event == StateEvent::Response
@@ -159,7 +159,7 @@ impl State {
     }
 
     pub fn client_error(self) -> Self {
-        State {
+        Self {
             client: Client::Error,
             ..self
         }
@@ -167,7 +167,7 @@ impl State {
     }
 
     pub fn server_error(self) -> Self {
-        State {
+        Self {
             server: Server::Error,
             ..self
         }
@@ -175,7 +175,7 @@ impl State {
     }
 
     pub fn connect_proposal(self) -> Self {
-        State {
+        Self {
             pending_connect: true,
             ..self
         }
@@ -183,7 +183,7 @@ impl State {
     }
 
     pub fn upgrade_proposal(self) -> Self {
-        State {
+        Self {
             pending_upgrade: true,
             ..self
         }
@@ -191,7 +191,7 @@ impl State {
     }
 
     pub fn disable_keep_alive(self) -> Self {
-        State {
+        Self {
             keep_alive: false,
             ..self
         }
@@ -202,7 +202,7 @@ impl State {
         if (self.client, self.server) != (Client::Done, Server::Done) {
             return Err(format_err!("not in reusable state"));
         }
-        Ok(State {
+        Ok(Self {
             client: Client::Idle,
             server: Server::Idle,
             ..self
@@ -236,22 +236,14 @@ impl State {
                 (Client::MightSwitchProtocol, Server::SwitchedProtocol) => {
                     self.client = Client::SwitchedProtocol;
                 }
-                (Client::Closed, Server::Done) => {
+                (Client::Closed, Server::Done)
+                | (Client::Closed, Server::Idle)
+                | (Client::Error, Server::Done) => {
                     self.server = Server::MustClose;
                 }
-                (Client::Closed, Server::Idle) => {
-                    self.server = Server::MustClose;
-                }
-                (Client::Error, Server::Done) => {
-                    self.server = Server::MustClose;
-                }
-                (Client::Done, Server::Closed) => {
-                    self.client = Client::MustClose;
-                }
-                (Client::Idle, Server::Closed) => {
-                    self.client = Client::MustClose;
-                }
-                (Client::Done, Server::Error) => {
+                (Client::Done, Server::Closed)
+                | (Client::Idle, Server::Closed)
+                | (Client::Done, Server::Error) => {
                     self.client = Client::MustClose;
                 }
                 _ => {}
@@ -270,7 +262,7 @@ impl State {
 
 impl Default for State {
     fn default() -> Self {
-        State::new()
+        Self::new()
     }
 }
 

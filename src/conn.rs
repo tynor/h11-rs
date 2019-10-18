@@ -12,8 +12,10 @@ use crate::req::ReqHead;
 use crate::resp::RespHead;
 use crate::state::{State, SwitchEvent};
 
+#[allow(clippy::empty_enum)]
 pub enum Client {}
 
+#[allow(clippy::empty_enum)]
 pub enum Server {}
 
 pub struct HttpConn<R> {
@@ -29,7 +31,7 @@ impl<R> HttpConn<R> {
         in_buf: BytesMut,
         out_buf: BytesMut,
     ) -> Self {
-        HttpConn {
+        Self {
             inner: Inner::from_bufs(max_event_size, in_buf, out_buf),
             peer_http_version: None,
             body_reader: None,
@@ -89,7 +91,7 @@ impl Inner {
         in_buf: BytesMut,
         out_buf: BytesMut,
     ) -> Self {
-        Inner {
+        Self {
             state: State::new(),
             max_event_size,
             in_buf,

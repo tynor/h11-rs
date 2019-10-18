@@ -1,3 +1,7 @@
+#![allow(dead_code)]
+#![warn(clippy::pedantic)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::module_name_repetitions)]
 // This lint causes false positives because of how many "\r\n" line
 // endings there are in HTTP.
 #![allow(clippy::write_with_newline)]

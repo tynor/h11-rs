@@ -50,7 +50,7 @@ impl RespHead {
             headers.append(name, value);
         }
 
-        Ok(Some(RespHead {
+        Ok(Some(Self {
             status,
             version,
             headers,
@@ -96,7 +96,7 @@ impl RespHead {
         can_keep_alive(self.version, &self.headers)
     }
 
-    fn framing_method(&self, method: Method) -> FramingMethod {
+    fn framing_method(&self, method: &Method) -> FramingMethod {
         if self.status == StatusCode::NO_CONTENT
             || self.status == StatusCode::NOT_MODIFIED
             || method == Method::HEAD

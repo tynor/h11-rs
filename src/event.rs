@@ -21,12 +21,12 @@ impl Event {
         use self::StateEvent::*;
 
         match *self {
-            Event::Request(_) => Request,
-            Event::InfoResponse(_) => InfoResponse,
-            Event::Response(_) => Response,
-            Event::Data(_) => Data,
-            Event::EndOfMessage(_) => EndOfMessage,
-            Event::ConnectionClosed => ConnectionClosed,
+            Self::Request(_) => Request,
+            Self::InfoResponse(_) => InfoResponse,
+            Self::Response(_) => Response,
+            Self::Data(_) => Data,
+            Self::EndOfMessage(_) => EndOfMessage,
+            Self::ConnectionClosed => ConnectionClosed,
         }
     }
 
