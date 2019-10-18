@@ -5,6 +5,7 @@ use crate::req::ReqHead;
 use crate::resp::RespHead;
 use crate::state::StateEvent;
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq)]
 pub enum Event {
     Request(ReqHead),

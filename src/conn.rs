@@ -12,11 +12,11 @@ use crate::req::ReqHead;
 use crate::resp::RespHead;
 use crate::state::{State, SwitchEvent};
 
-enum Client {}
+pub enum Client {}
 
-enum Server {}
+pub enum Server {}
 
-struct HttpConn<R> {
+pub struct HttpConn<R> {
     inner: Inner,
     peer_http_version: Option<Version>,
     body_reader: Option<BodyReader>,
@@ -91,10 +91,10 @@ impl Inner {
     ) -> Self {
         Inner {
             state: State::new(),
-            max_event_size: max_event_size,
-            in_buf: in_buf,
+            max_event_size,
+            in_buf,
             in_buf_closed: false,
-            out_buf: out_buf,
+            out_buf,
             client_wants_continue: false,
         }
     }
