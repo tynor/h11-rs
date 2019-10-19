@@ -153,6 +153,9 @@ impl Inner {
         (self.in_buf, self.out_buf)
     }
 
+    // XXX: this should be able to indicate that it will *never* return
+    //      an event again, because the connection has been hijacked via
+    //      UPGRADE or CONNECT
     fn next_client_event(&mut self) -> Result<Option<Event>, Error> {
         use state::Client::*;
 
