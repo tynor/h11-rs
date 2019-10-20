@@ -1,5 +1,5 @@
 use bytes::{Bytes, BytesMut};
-use failure::Error;
+use err_derive::Error;
 use http::header::{HeaderName, HeaderValue};
 use http::{HeaderMap, Method, StatusCode, Version};
 use httparse::{Response, EMPTY_HEADER};
@@ -7,6 +7,14 @@ use twoway::find_bytes;
 
 use crate::body::FramingMethod;
 use crate::util::{can_keep_alive, is_chunked, maybe_content_length};
+
+#[derive(Debug, Error)]
+pub enum RespHeadError {
+    #[error(display = "An error occurred parsing HTTP: {}", _0)]
+    HttpParse(#[error(source)] httparse::Error),
+    #[error(display = "An invalid status code was provided: {}", _0)]
+    InvalidStatusCode(#[error(source)] http::status::InvalidStatusCode),
+}
 
 #[derive(Debug, PartialEq)]
 pub struct RespHead {
@@ -16,7 +24,7 @@ pub struct RespHead {
 }
 
 impl RespHead {
-    fn from_buf(buf: &mut BytesMut) -> Result<Option<Self>, Error> {
+    fn from_buf(buf: &mut BytesMut) -> Result<Option<Self>, RespHeadError> {
         let buf = match find_bytes(buf, &b"\r\n\r\n"[..]) {
             Some(n) => buf.split_to(n + 4).freeze(),
             None => return Ok(None),

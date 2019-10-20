@@ -1,4 +1,20 @@
-use failure::{format_err, Error};
+use err_derive::Error;
+
+#[derive(Debug, Error)]
+pub enum StateError {
+    #[error(display = "invalid state transition from the client")]
+    ClientInvalidStateTransition,
+    #[error(display = "invalid state transition from the server")]
+    ServerInvalidStateTransition,
+    #[error(display = "cannot connect without proposal")]
+    SwitchProposalMissing,
+    #[error(display = "cannot upgrade without proposal")]
+    UpgradeProposalMissing,
+    #[error(display = "not in reusable state")]
+    NotInReusableState,
+}
+
+pub type StateResult<T> = std::result::Result<T, StateError>;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum StateEvent {
@@ -29,7 +45,7 @@ pub enum Client {
 }
 
 impl Client {
-    fn send(self, event: StateEvent) -> Result<Self, Error> {
+    fn send(self, event: StateEvent) -> StateResult<Self> {
         use self::Client::*;
         use self::StateEvent::*;
 
@@ -40,7 +56,7 @@ impl Client {
             | (Done, ConnectionClosed)
             | (MustClose, ConnectionClosed)
             | (Closed, ConnectionClosed) => Closed,
-            _ => return Err(format_err!("invalid state transition")),
+            _ => return Err(StateError::ClientInvalidStateTransition),
         })
     }
 }
@@ -62,7 +78,7 @@ impl Server {
         self,
         event: StateEvent,
         switch: Option<SwitchEvent>,
-    ) -> Result<Self, Error> {
+    ) -> StateResult<Self> {
         use self::Server::*;
         use self::StateEvent::*;
         use self::SwitchEvent::*;
@@ -81,7 +97,7 @@ impl Server {
             | (Done, ConnectionClosed, None)
             | (MustClose, ConnectionClosed, None)
             | (Closed, ConnectionClosed, None) => Closed,
-            _ => return Err(format_err!("invalid state transition")),
+            _ => return Err(StateError::ServerInvalidStateTransition),
         })
     }
 }
@@ -110,7 +126,7 @@ impl State {
         (self.client, self.server)
     }
 
-    pub fn client_event(self, event: StateEvent) -> Result<Self, Error> {
+    pub fn client_event(self, event: StateEvent) -> StateResult<Self> {
         Ok(Self {
             client: self.client.send(event)?,
             server: if event == StateEvent::Request {
@@ -127,13 +143,13 @@ impl State {
         self,
         event: StateEvent,
         switch: Option<SwitchEvent>,
-    ) -> Result<Self, Error> {
+    ) -> StateResult<Self> {
         match switch {
             Some(SwitchEvent::Connect) if !self.pending_connect => {
-                return Err(format_err!("cannot connect without proposal"));
+                return Err(StateError::SwitchProposalMissing);
             }
             Some(SwitchEvent::Upgrade) if !self.pending_upgrade => {
-                return Err(format_err!("cannot upgrade without proposal"));
+                return Err(StateError::UpgradeProposalMissing);
             }
             _ => {}
         }
@@ -198,9 +214,9 @@ impl State {
         .state_transitions()
     }
 
-    pub fn start_next_cycle(self) -> Result<Self, Error> {
+    pub fn start_next_cycle(self) -> StateResult<Self> {
         if (self.client, self.server) != (Client::Done, Server::Done) {
-            return Err(format_err!("not in reusable state"));
+            return Err(StateError::NotInReusableState);
         }
         Ok(Self {
             client: Client::Idle,

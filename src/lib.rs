@@ -8,6 +8,7 @@
 
 mod body;
 mod conn;
+mod error;
 mod event;
 mod req;
 mod resp;

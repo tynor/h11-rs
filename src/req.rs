@@ -1,5 +1,5 @@
 use bytes::{Bytes, BytesMut};
-use failure::Error;
+use err_derive::Error;
 use http::header::{HeaderName, HeaderValue};
 use http::{HeaderMap, Method, Uri, Version};
 use httparse::{Request, EMPTY_HEADER};
@@ -16,8 +16,20 @@ pub struct ReqHead {
     pub headers: HeaderMap,
 }
 
+#[derive(Debug, Error)]
+pub enum ReqHeadError {
+    #[error(display = "An error occurred in parsing HTTP: {}", _0)]
+    Parse(#[error(source)] httparse::Error),
+    #[error(display = "Invalid method provided: {}", _0)]
+    InvalidMethod(#[error(source)] http::method::InvalidMethod),
+    #[error(display = "Invalid URI bytes were provided: {}", _0)]
+    InvalidUriBytes(#[error(source)] http::uri::InvalidUriBytes),
+}
+
+pub type ReqHeadResult<T> = std::result::Result<T, ReqHeadError>;
+
 impl ReqHead {
-    pub(crate) fn from_buf(buf: &mut BytesMut) -> Result<Option<Self>, Error> {
+    pub(crate) fn from_buf(buf: &mut BytesMut) -> ReqHeadResult<Option<Self>> {
         let buf = match find_bytes(buf, &b"\r\n\r\n"[..]) {
             Some(n) => buf.split_to(n + 4).freeze(),
             None => return Ok(None),

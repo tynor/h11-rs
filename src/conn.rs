@@ -3,14 +3,33 @@ use std::marker::PhantomData;
 use std::str;
 
 use bytes::{BufMut, Bytes, BytesMut};
-use failure::{format_err, Error};
+use err_derive::Error;
 use http::{HeaderMap, Method, StatusCode, Version};
 
-use crate::body::BodyReader;
+use crate::body::{BodyError, BodyReader};
 use crate::event::Event;
-use crate::req::ReqHead;
+use crate::req::{ReqHead, ReqHeadError};
 use crate::resp::RespHead;
-use crate::state::{self, State, SwitchEvent};
+use crate::state::{self, State, StateError, SwitchEvent};
+
+#[derive(Debug, Error)]
+pub enum ConnectionError {
+    #[error(display = "Client in error state")]
+    ClientErrorState,
+    #[error(display = "peer closed then sent data??")]
+    DataFromClosedPeer,
+    #[error(
+        display = "An error occurred when reading the request head: {}",
+        _0
+    )]
+    RequestHead(#[error(source)] ReqHeadError),
+    #[error(display = "An error occurred in the http body: {}", _0)]
+    HttpBody(#[error(source)] BodyError),
+    #[error(display = "An IO error occurred: {}", _0)]
+    IO(#[error(source)] std::io::Error),
+    #[error(display = "An error occurred in internal state: {}", _0)]
+    State(#[error(source)] StateError),
+}
 
 #[allow(clippy::empty_enum)]
 pub enum Client {}
@@ -43,7 +62,10 @@ impl<Role> HttpConn<Role> {
         self.inner.into_bufs()
     }
 
-    pub fn read_from<R: Read>(&mut self, r: &mut R) -> Result<usize, Error> {
+    pub fn read_from<R: Read>(
+        &mut self,
+        r: &mut R,
+    ) -> Result<usize, ConnectionError> {
         self.inner.read_from(r)
     }
 }
@@ -55,13 +77,19 @@ impl<Role> Default for HttpConn<Role> {
 }
 
 impl HttpConn<Client> {
-    pub fn send_req(&mut self, req: ReqHead) -> Result<Bytes, Error> {
+    pub fn send_req(
+        &mut self,
+        req: ReqHead,
+    ) -> Result<Bytes, ConnectionError> {
         let event = Event::Request(req);
         self.inner.client_event(&event)?;
         Ok(self.inner.write_event(event))
     }
 
-    pub fn send_data(&mut self, data: Bytes) -> Result<Bytes, Error> {
+    pub fn send_data(
+        &mut self,
+        data: Bytes,
+    ) -> Result<Bytes, ConnectionError> {
         let event = Event::Data(data);
         self.inner.client_event(&event)?;
         Ok(self.inner.write_event(event))
@@ -70,36 +98,47 @@ impl HttpConn<Client> {
     pub fn send_end_of_message(
         &mut self,
         headers: Option<HeaderMap>,
-    ) -> Result<Bytes, Error> {
+    ) -> Result<Bytes, ConnectionError> {
         let event = Event::EndOfMessage(headers);
         self.inner.client_event(&event)?;
         Ok(self.inner.write_event(event))
     }
 
-    pub fn send_connection_closed(&mut self) -> Result<Bytes, Error> {
+    pub fn send_connection_closed(
+        &mut self,
+    ) -> Result<Bytes, ConnectionError> {
         self.inner.client_event(&Event::ConnectionClosed)?;
         Ok(Bytes::new())
     }
 }
 
 impl HttpConn<Server> {
-    pub fn next_event(&mut self) -> Result<Option<Event>, Error> {
+    pub fn next_event(&mut self) -> Result<Option<Event>, ConnectionError> {
         self.inner.next_client_event()
     }
 
-    pub fn send_info_resp(&mut self, resp: RespHead) -> Result<Bytes, Error> {
+    pub fn send_info_resp(
+        &mut self,
+        resp: RespHead,
+    ) -> Result<Bytes, ConnectionError> {
         let event = Event::InfoResponse(resp);
         self.inner.server_event(&event)?;
         Ok(self.inner.write_event(event))
     }
 
-    pub fn send_resp(&mut self, resp: RespHead) -> Result<Bytes, Error> {
+    pub fn send_resp(
+        &mut self,
+        resp: RespHead,
+    ) -> Result<Bytes, ConnectionError> {
         let event = Event::Response(resp);
         self.inner.server_event(&event)?;
         Ok(self.inner.write_event(event))
     }
 
-    pub fn send_data(&mut self, data: Bytes) -> Result<Bytes, Error> {
+    pub fn send_data(
+        &mut self,
+        data: Bytes,
+    ) -> Result<Bytes, ConnectionError> {
         let event = Event::Data(data);
         self.inner.server_event(&event)?;
         Ok(self.inner.write_event(event))
@@ -108,13 +147,15 @@ impl HttpConn<Server> {
     pub fn send_end_of_message(
         &mut self,
         headers: Option<HeaderMap>,
-    ) -> Result<Bytes, Error> {
+    ) -> Result<Bytes, ConnectionError> {
         let event = Event::EndOfMessage(headers);
         self.inner.server_event(&event)?;
         Ok(self.inner.write_event(event))
     }
 
-    pub fn send_connection_closed(&mut self) -> Result<Bytes, Error> {
+    pub fn send_connection_closed(
+        &mut self,
+    ) -> Result<Bytes, ConnectionError> {
         self.inner.server_event(&Event::ConnectionClosed)?;
         Ok(Bytes::new())
     }
@@ -156,7 +197,7 @@ impl Inner {
     // XXX: this should be able to indicate that it will *never* return
     //      an event again, because the connection has been hijacked via
     //      UPGRADE or CONNECT
-    fn next_client_event(&mut self) -> Result<Option<Event>, Error> {
+    fn next_client_event(&mut self) -> Result<Option<Event>, ConnectionError> {
         use state::Client::*;
 
         match self.state.states().0 {
@@ -171,40 +212,41 @@ impl Inner {
                 Ok(None) => Ok(None),
                 Err(e) => {
                     self.state = self.state.client_error();
-                    Err(e)
+                    Err(e.into())
                 }
             },
             SendBody => {
                 let br = self.body_reader.as_mut().expect("reading body");
                 if !self.in_buf.is_empty() {
-                    br.next_event(&mut self.in_buf)
+                    br.next_event(&mut self.in_buf).map_err(Into::into)
                 } else if self.in_buf_closed {
-                    br.eof().map(Some)
+                    Ok(Some(br.eof()?))
                 } else {
                     Ok(None)
                 }
             }
-            Error => Err(format_err!("client in error state")),
+            Error => Err(ConnectionError::ClientErrorState),
             Done | MustClose | Closed | MightSwitchProtocol
             | SwitchedProtocol => Ok(None),
         }
     }
 
-    fn read_from<R: Read>(&mut self, r: &mut R) -> Result<usize, Error> {
+    fn read_from<R: Read>(
+        &mut self,
+        r: &mut R,
+    ) -> Result<usize, ConnectionError> {
         if self.in_buf.remaining_mut() < self.max_event_size {
             self.in_buf.reserve(self.max_event_size);
         }
         unsafe {
             r.read(self.in_buf.bytes_mut())
-                .map_err(|e| e.into())
+                .map_err(Into::into)
                 .and_then(|n| {
                     if n == 0 {
                         self.in_buf_closed = true;
                     } else {
                         if self.in_buf_closed {
-                            return Err(format_err!(
-                                "peer closed then sent data??"
-                            ));
+                            return Err(ConnectionError::DataFromClosedPeer);
                         }
                         self.in_buf.advance_mut(n);
                     }
@@ -217,7 +259,7 @@ impl Inner {
         event.into_buf(&mut self.out_buf)
     }
 
-    fn client_event(&mut self, event: &Event) -> Result<(), Error> {
+    fn client_event(&mut self, event: &Event) -> Result<(), ConnectionError> {
         use http::header::{EXPECT, UPGRADE};
 
         if let Event::Request(ref req) = *event {
@@ -257,7 +299,7 @@ impl Inner {
         Ok(())
     }
 
-    fn server_event(&mut self, event: &Event) -> Result<(), Error> {
+    fn server_event(&mut self, event: &Event) -> Result<(), ConnectionError> {
         let switch = match *event {
             Event::InfoResponse(RespHead {
                 status: StatusCode::SWITCHING_PROTOCOLS,

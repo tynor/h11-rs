@@ -1,10 +1,26 @@
 use bytes::BytesMut;
-use failure::{format_err, Error};
+use err_derive::Error;
 use http::header::{HeaderName, HeaderValue};
 use http::HeaderMap;
 use httparse::{parse_chunk_size, parse_headers, Status, EMPTY_HEADER};
 
 use crate::event::Event;
+
+#[derive(Debug, Error)]
+pub enum BodyError {
+    #[error(display = "Too much data to write")]
+    TooMuchData,
+    #[error(display = "connection closed before finishing body")]
+    ConnectionClosedPrematurely,
+    #[error(display = "invalid chunk size")]
+    InvalidChunkSize,
+    #[error(display = "An IO error occurred: {}", _0)]
+    IO(#[error(source)] std::io::Error),
+    #[error(display = "An error occurred when parsing HTTP: {}", _0)]
+    HttpParse(#[error(source)] httparse::Error),
+}
+
+pub type BodyResult<T> = std::result::Result<T, BodyError>;
 
 pub use self::writer::BodyWriter;
 
@@ -12,8 +28,8 @@ pub mod writer {
     use std::io::{Cursor, Write};
     use std::mem::size_of;
 
+    use crate::body::{BodyError, BodyResult};
     use bytes::{BufMut, Bytes, BytesMut};
-    use failure::{format_err, Error};
 
     #[derive(Clone, Copy, Debug)]
     pub enum BodyWriter {
@@ -26,9 +42,9 @@ pub mod writer {
     pub struct ContentLength(usize);
 
     impl ContentLength {
-        fn write_chunk(&mut self, data: Bytes) -> Result<Bytes, Error> {
+        fn write_chunk(&mut self, data: Bytes) -> BodyResult<Bytes> {
             if data.len() < self.0 {
-                return Err(format_err!("too much data to write"));
+                return Err(BodyError::TooMuchData);
             }
             self.0 -= data.len();
             Ok(data)
@@ -38,7 +54,7 @@ pub mod writer {
     fn write_chunked_chunk(
         buf: &mut BytesMut,
         data: &Bytes,
-    ) -> Result<Bytes, Error> {
+    ) -> BodyResult<Bytes> {
         if buf.capacity() < (4 + size_of::<usize>() + data.len()) {
             buf.reserve(4 + size_of::<usize>() + data.len());
         }
@@ -76,7 +92,7 @@ impl BodyReader {
     pub(crate) fn next_event(
         &mut self,
         buf: &mut BytesMut,
-    ) -> Result<Option<Event>, Error> {
+    ) -> BodyResult<Option<Event>> {
         match *self {
             Self::ContentLength(ref mut r) => r.next_event(buf),
             Self::Chunked(ref mut r) => r.next_event(buf),
@@ -84,10 +100,10 @@ impl BodyReader {
         }
     }
 
-    pub(crate) fn eof(&self) -> Result<Event, Error> {
+    pub(crate) fn eof(&self) -> BodyResult<Event> {
         match *self {
             Self::ContentLength(_) | Self::Chunked(_) => {
-                Err(format_err!("connection closed before finishing body"))
+                Err(BodyError::ConnectionClosedPrematurely)
             }
             Self::Http10 => Ok(Event::EndOfMessage(None)),
         }
@@ -110,10 +126,7 @@ impl From<FramingMethod> for BodyReader {
 pub struct ContentLength(usize);
 
 impl ContentLength {
-    fn next_event(
-        &mut self,
-        buf: &mut BytesMut,
-    ) -> Result<Option<Event>, Error> {
+    fn next_event(&mut self, buf: &mut BytesMut) -> BodyResult<Option<Event>> {
         if self.0 == 0 {
             return Ok(Some(Event::EndOfMessage(None)));
         }
@@ -150,10 +163,7 @@ impl HeaderPos {
 }
 
 impl Chunked {
-    fn next_event(
-        &mut self,
-        buf: &mut BytesMut,
-    ) -> Result<Option<Event>, Error> {
+    fn next_event(&mut self, buf: &mut BytesMut) -> BodyResult<Option<Event>> {
         use self::Chunked::*;
 
         loop {
@@ -161,7 +171,7 @@ impl Chunked {
                 Start => {
                     let r = parse_chunk_size(buf);
                     if r.is_err() {
-                        return Err(format_err!("invalid chunk size"));
+                        return Err(BodyError::InvalidChunkSize);
                     }
                     let st = r.unwrap();
                     match st {
@@ -260,7 +270,7 @@ impl Chunked {
 struct Http10;
 
 impl Http10 {
-    fn next_event(buf: &mut BytesMut) -> Result<Option<Event>, Error> {
+    fn next_event(buf: &mut BytesMut) -> BodyResult<Option<Event>> {
         Ok(if buf.is_empty() {
             None
         } else {
