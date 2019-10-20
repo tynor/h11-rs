@@ -1,3 +1,5 @@
+use std::fmt;
+
 use bytes::BytesMut;
 use http::header::{HeaderName, HeaderValue};
 use http::HeaderMap;
@@ -6,7 +8,6 @@ use httparse::{parse_chunk_size, parse_headers, Status, EMPTY_HEADER};
 use crate::event::Event;
 
 pub use self::writer::BodyWriter;
-use std::fmt;
 
 pub mod writer {
     use std::io::{Cursor, Write};

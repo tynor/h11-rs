@@ -1,3 +1,5 @@
+use std::fmt;
+
 use bytes::{Bytes, BytesMut};
 use http::header::{HeaderName, HeaderValue};
 use http::{HeaderMap, Method, StatusCode, Version};
@@ -6,7 +8,6 @@ use twoway::find_bytes;
 
 use crate::body::FramingMethod;
 use crate::util::{can_keep_alive, is_chunked, maybe_content_length};
-use std::fmt;
 
 #[derive(Debug, PartialEq)]
 pub struct RespHead {
