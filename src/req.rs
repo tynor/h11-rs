@@ -301,13 +301,13 @@ pub type ReqHeadResult<T> = std::result::Result<T, ReqHeadError>;
 impl fmt::Display for ReqHeadError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ReqHeadError::Parse(e) => {
+            Self::Parse(e) => {
                 write!(f, "An error occurred in parsing HTTP: {}", e)
             }
-            ReqHeadError::InvalidMethod(e) => {
+            Self::InvalidMethod(e) => {
                 write!(f, "Invalid method provided: {}", e)
             }
-            ReqHeadError::InvalidUriBytes(e) => {
+            Self::InvalidUriBytes(e) => {
                 write!(f, "Invalid URI bytes were provided: {}", e)
             }
         }
@@ -317,9 +317,9 @@ impl fmt::Display for ReqHeadError {
 impl std::error::Error for ReqHeadError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            ReqHeadError::Parse(e) => Some(e),
-            ReqHeadError::InvalidMethod(e) => Some(e),
-            ReqHeadError::InvalidUriBytes(e) => Some(e),
+            Self::Parse(e) => Some(e),
+            Self::InvalidMethod(e) => Some(e),
+            Self::InvalidUriBytes(e) => Some(e),
         }
     }
 }
