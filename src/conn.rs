@@ -1,9 +1,8 @@
 use std::io::Read;
 use std::marker::PhantomData;
-use std::str;
+use std::{fmt, str};
 
 use bytes::{BufMut, Bytes, BytesMut};
-use err_derive::Error;
 use http::{HeaderMap, Method, StatusCode, Version};
 
 use crate::body::{BodyError, BodyReader};
@@ -11,25 +10,6 @@ use crate::event::Event;
 use crate::req::{ReqHead, ReqHeadError};
 use crate::resp::RespHead;
 use crate::state::{self, State, StateError, SwitchEvent};
-
-#[derive(Debug, Error)]
-pub enum ConnectionError {
-    #[error(display = "Client in error state")]
-    ClientErrorState,
-    #[error(display = "peer closed then sent data??")]
-    DataFromClosedPeer,
-    #[error(
-        display = "An error occurred when reading the request head: {}",
-        _0
-    )]
-    RequestHead(#[error(source)] ReqHeadError),
-    #[error(display = "An error occurred in the http body: {}", _0)]
-    HttpBody(#[error(source)] BodyError),
-    #[error(display = "An IO error occurred: {}", _0)]
-    IO(#[error(source)] std::io::Error),
-    #[error(display = "An error occurred in internal state: {}", _0)]
-    State(#[error(source)] StateError),
-}
 
 #[allow(clippy::empty_enum)]
 pub enum Client {}
@@ -62,10 +42,7 @@ impl<Role> HttpConn<Role> {
         self.inner.into_bufs()
     }
 
-    pub fn read_from<R: Read>(
-        &mut self,
-        r: &mut R,
-    ) -> Result<usize, ConnectionError> {
+    pub fn read_from<R: Read>(&mut self, r: &mut R) -> Result<usize, Error> {
         self.inner.read_from(r)
     }
 }
@@ -77,19 +54,13 @@ impl<Role> Default for HttpConn<Role> {
 }
 
 impl HttpConn<Client> {
-    pub fn send_req(
-        &mut self,
-        req: ReqHead,
-    ) -> Result<Bytes, ConnectionError> {
+    pub fn send_req(&mut self, req: ReqHead) -> Result<Bytes, Error> {
         let event = Event::Request(req);
         self.inner.client_event(&event)?;
         Ok(self.inner.write_event(event))
     }
 
-    pub fn send_data(
-        &mut self,
-        data: Bytes,
-    ) -> Result<Bytes, ConnectionError> {
+    pub fn send_data(&mut self, data: Bytes) -> Result<Bytes, Error> {
         let event = Event::Data(data);
         self.inner.client_event(&event)?;
         Ok(self.inner.write_event(event))
@@ -98,47 +69,36 @@ impl HttpConn<Client> {
     pub fn send_end_of_message(
         &mut self,
         headers: Option<HeaderMap>,
-    ) -> Result<Bytes, ConnectionError> {
+    ) -> Result<Bytes, Error> {
         let event = Event::EndOfMessage(headers);
         self.inner.client_event(&event)?;
         Ok(self.inner.write_event(event))
     }
 
-    pub fn send_connection_closed(
-        &mut self,
-    ) -> Result<Bytes, ConnectionError> {
+    pub fn send_connection_closed(&mut self) -> Result<Bytes, Error> {
         self.inner.client_event(&Event::ConnectionClosed)?;
         Ok(Bytes::new())
     }
 }
 
 impl HttpConn<Server> {
-    pub fn next_event(&mut self) -> Result<Option<Event>, ConnectionError> {
+    pub fn next_event(&mut self) -> Result<Option<Event>, Error> {
         self.inner.next_client_event()
     }
 
-    pub fn send_info_resp(
-        &mut self,
-        resp: RespHead,
-    ) -> Result<Bytes, ConnectionError> {
+    pub fn send_info_resp(&mut self, resp: RespHead) -> Result<Bytes, Error> {
         let event = Event::InfoResponse(resp);
         self.inner.server_event(&event)?;
         Ok(self.inner.write_event(event))
     }
 
-    pub fn send_resp(
-        &mut self,
-        resp: RespHead,
-    ) -> Result<Bytes, ConnectionError> {
+    pub fn send_resp(&mut self, resp: RespHead) -> Result<Bytes, Error> {
         let event = Event::Response(resp);
         self.inner.server_event(&event)?;
         Ok(self.inner.write_event(event))
     }
 
-    pub fn send_data(
-        &mut self,
-        data: Bytes,
-    ) -> Result<Bytes, ConnectionError> {
+    pub fn send_data(&mut self, data: Bytes) -> Result<Bytes, Error> {
         let event = Event::Data(data);
         self.inner.server_event(&event)?;
         Ok(self.inner.write_event(event))
@@ -147,15 +107,13 @@ impl HttpConn<Server> {
     pub fn send_end_of_message(
         &mut self,
         headers: Option<HeaderMap>,
-    ) -> Result<Bytes, ConnectionError> {
+    ) -> Result<Bytes, Error> {
         let event = Event::EndOfMessage(headers);
         self.inner.server_event(&event)?;
         Ok(self.inner.write_event(event))
     }
 
-    pub fn send_connection_closed(
-        &mut self,
-    ) -> Result<Bytes, ConnectionError> {
+    pub fn send_connection_closed(&mut self) -> Result<Bytes, Error> {
         self.inner.server_event(&Event::ConnectionClosed)?;
         Ok(Bytes::new())
     }
@@ -197,7 +155,7 @@ impl Inner {
     // XXX: this should be able to indicate that it will *never* return
     //      an event again, because the connection has been hijacked via
     //      UPGRADE or CONNECT
-    fn next_client_event(&mut self) -> Result<Option<Event>, ConnectionError> {
+    fn next_client_event(&mut self) -> Result<Option<Event>, Error> {
         use state::Client::*;
 
         match self.state.states().0 {
@@ -225,16 +183,13 @@ impl Inner {
                     Ok(None)
                 }
             }
-            Error => Err(ConnectionError::ClientErrorState),
+            Error => Err(self::Error::ClientErrorState),
             Done | MustClose | Closed | MightSwitchProtocol
             | SwitchedProtocol => Ok(None),
         }
     }
 
-    fn read_from<R: Read>(
-        &mut self,
-        r: &mut R,
-    ) -> Result<usize, ConnectionError> {
+    fn read_from<R: Read>(&mut self, r: &mut R) -> Result<usize, Error> {
         if self.in_buf.remaining_mut() < self.max_event_size {
             self.in_buf.reserve(self.max_event_size);
         }
@@ -246,7 +201,7 @@ impl Inner {
                         self.in_buf_closed = true;
                     } else {
                         if self.in_buf_closed {
-                            return Err(ConnectionError::DataFromClosedPeer);
+                            return Err(Error::DataFromClosedPeer);
                         }
                         self.in_buf.advance_mut(n);
                     }
@@ -259,7 +214,7 @@ impl Inner {
         event.into_buf(&mut self.out_buf)
     }
 
-    fn client_event(&mut self, event: &Event) -> Result<(), ConnectionError> {
+    fn client_event(&mut self, event: &Event) -> Result<(), Error> {
         use http::header::{EXPECT, UPGRADE};
 
         if let Event::Request(ref req) = *event {
@@ -299,7 +254,7 @@ impl Inner {
         Ok(())
     }
 
-    fn server_event(&mut self, event: &Event) -> Result<(), ConnectionError> {
+    fn server_event(&mut self, event: &Event) -> Result<(), Error> {
         let switch = match *event {
             Event::InfoResponse(RespHead {
                 status: StatusCode::SWITCHING_PROTOCOLS,
@@ -328,5 +283,74 @@ impl Inner {
         }
 
         Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub enum Error {
+    ClientErrorState,
+    DataFromClosedPeer,
+    RequestHead(ReqHeadError),
+    HttpBody(BodyError),
+    IO(std::io::Error),
+    State(StateError),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::ClientErrorState => write!(f, "Client in error state"),
+            Self::DataFromClosedPeer => {
+                write!(f, "peer closed then sent data??")
+            }
+            Self::RequestHead(e) => write!(
+                f,
+                "An error occurred when reading the request head: {}",
+                e
+            ),
+            Self::HttpBody(e) => {
+                write!(f, "An error occurred in the http body: {}", e)
+            }
+            Self::IO(e) => write!(f, "An IO error occurred: {}", e),
+            Self::State(e) => {
+                write!(f, "An error occurred in internal state: {}", e)
+            }
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::RequestHead(e) => Some(e),
+            Self::HttpBody(e) => Some(e),
+            Self::IO(e) => Some(e),
+            Self::State(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl From<ReqHeadError> for Error {
+    fn from(e: ReqHeadError) -> Self {
+        Self::RequestHead(e)
+    }
+}
+
+impl From<BodyError> for Error {
+    fn from(e: BodyError) -> Self {
+        Self::HttpBody(e)
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        Self::IO(e)
+    }
+}
+
+impl From<StateError> for Error {
+    fn from(e: StateError) -> Self {
+        Self::State(e)
     }
 }

@@ -1,5 +1,4 @@
 use bytes::{Bytes, BytesMut};
-use err_derive::Error;
 use http::header::{HeaderName, HeaderValue};
 use http::{HeaderMap, Method, StatusCode, Version};
 use httparse::{Response, EMPTY_HEADER};
@@ -7,14 +6,7 @@ use twoway::find_bytes;
 
 use crate::body::FramingMethod;
 use crate::util::{can_keep_alive, is_chunked, maybe_content_length};
-
-#[derive(Debug, Error)]
-pub enum RespHeadError {
-    #[error(display = "An error occurred parsing HTTP: {}", _0)]
-    HttpParse(#[error(source)] httparse::Error),
-    #[error(display = "An invalid status code was provided: {}", _0)]
-    InvalidStatusCode(#[error(source)] http::status::InvalidStatusCode),
-}
+use std::fmt;
 
 #[derive(Debug, PartialEq)]
 pub struct RespHead {
@@ -117,6 +109,46 @@ impl RespHead {
             maybe_content_length(&self.headers)
                 .map_or(FramingMethod::Http10, FramingMethod::ContentLength)
         }
+    }
+}
+
+#[derive(Debug)]
+pub enum RespHeadError {
+    HttpParse(httparse::Error),
+    InvalidStatusCode(http::status::InvalidStatusCode),
+}
+
+impl fmt::Display for RespHeadError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::HttpParse(e) => {
+                write!(f, "An error occurred parsing HTTP: {}", e)
+            }
+            Self::InvalidStatusCode(e) => {
+                write!(f, "An invalid status code was provided: {}", e)
+            }
+        }
+    }
+}
+
+impl std::error::Error for RespHeadError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::HttpParse(e) => Some(e),
+            Self::InvalidStatusCode(e) => Some(e),
+        }
+    }
+}
+
+impl From<httparse::Error> for RespHeadError {
+    fn from(e: httparse::Error) -> Self {
+        Self::HttpParse(e)
+    }
+}
+
+impl From<http::status::InvalidStatusCode> for RespHeadError {
+    fn from(e: http::status::InvalidStatusCode) -> Self {
+        Self::InvalidStatusCode(e)
     }
 }
 

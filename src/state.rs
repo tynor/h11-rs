@@ -1,20 +1,4 @@
-use err_derive::Error;
-
-#[derive(Debug, Error)]
-pub enum StateError {
-    #[error(display = "invalid state transition from the client")]
-    ClientInvalidStateTransition,
-    #[error(display = "invalid state transition from the server")]
-    ServerInvalidStateTransition,
-    #[error(display = "cannot connect without proposal")]
-    SwitchProposalMissing,
-    #[error(display = "cannot upgrade without proposal")]
-    UpgradeProposalMissing,
-    #[error(display = "not in reusable state")]
-    NotInReusableState,
-}
-
-pub type StateResult<T> = std::result::Result<T, StateError>;
+use std::fmt;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum StateEvent {
@@ -281,6 +265,39 @@ impl Default for State {
         Self::new()
     }
 }
+
+#[derive(Debug)]
+pub enum StateError {
+    ClientInvalidStateTransition,
+    ServerInvalidStateTransition,
+    SwitchProposalMissing,
+    UpgradeProposalMissing,
+    NotInReusableState,
+}
+
+impl fmt::Display for StateError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::ClientInvalidStateTransition => {
+                write!(f, "invalid state transition from the client")
+            }
+            Self::ServerInvalidStateTransition => {
+                write!(f, "invalid state transition from the server")
+            }
+            Self::SwitchProposalMissing => {
+                write!(f, "cannot connect without proposal")
+            }
+            Self::UpgradeProposalMissing => {
+                write!(f, "cannot upgrade without proposal")
+            }
+            Self::NotInReusableState => write!(f, "not in reusable state"),
+        }
+    }
+}
+
+impl std::error::Error for StateError {}
+
+pub type StateResult<T> = std::result::Result<T, StateError>;
 
 #[cfg(test)]
 mod tests {

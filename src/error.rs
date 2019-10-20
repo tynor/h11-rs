@@ -1,1 +1,1 @@
-pub use crate::conn::ConnectionError as Error;
+pub use crate::conn::Error;

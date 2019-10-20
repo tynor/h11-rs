@@ -1,5 +1,4 @@
 use bytes::{Bytes, BytesMut};
-use err_derive::Error;
 use http::header::{HeaderName, HeaderValue};
 use http::{HeaderMap, Method, Uri, Version};
 use httparse::{Request, EMPTY_HEADER};
@@ -7,6 +6,7 @@ use twoway::find_bytes;
 
 use crate::body::FramingMethod;
 use crate::util::{can_keep_alive, is_chunked, maybe_content_length};
+use std::fmt;
 
 #[derive(Debug, PartialEq)]
 pub struct ReqHead {
@@ -15,18 +15,6 @@ pub struct ReqHead {
     pub version: Version,
     pub headers: HeaderMap,
 }
-
-#[derive(Debug, Error)]
-pub enum ReqHeadError {
-    #[error(display = "An error occurred in parsing HTTP: {}", _0)]
-    Parse(#[error(source)] httparse::Error),
-    #[error(display = "Invalid method provided: {}", _0)]
-    InvalidMethod(#[error(source)] http::method::InvalidMethod),
-    #[error(display = "Invalid URI bytes were provided: {}", _0)]
-    InvalidUriBytes(#[error(source)] http::uri::InvalidUriBytes),
-}
-
-pub type ReqHeadResult<T> = std::result::Result<T, ReqHeadError>;
 
 impl ReqHead {
     pub(crate) fn from_buf(buf: &mut BytesMut) -> ReqHeadResult<Option<Self>> {
@@ -297,5 +285,58 @@ mod tests {
             }
             .framing_method(),
         );
+    }
+}
+
+#[derive(Debug)]
+pub enum ReqHeadError {
+    Parse(httparse::Error),
+    InvalidMethod(http::method::InvalidMethod),
+    InvalidUriBytes(http::uri::InvalidUriBytes),
+}
+
+pub type ReqHeadResult<T> = std::result::Result<T, ReqHeadError>;
+
+impl fmt::Display for ReqHeadError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ReqHeadError::Parse(e) => {
+                write!(f, "An error occurred in parsing HTTP: {}", e)
+            }
+            ReqHeadError::InvalidMethod(e) => {
+                write!(f, "Invalid method provided: {}", e)
+            }
+            ReqHeadError::InvalidUriBytes(e) => {
+                write!(f, "Invalid URI bytes were provided: {}", e)
+            }
+        }
+    }
+}
+
+impl std::error::Error for ReqHeadError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ReqHeadError::Parse(e) => Some(e),
+            ReqHeadError::InvalidMethod(e) => Some(e),
+            ReqHeadError::InvalidUriBytes(e) => Some(e),
+        }
+    }
+}
+
+impl From<httparse::Error> for ReqHeadError {
+    fn from(e: httparse::Error) -> Self {
+        Self::Parse(e)
+    }
+}
+
+impl From<http::method::InvalidMethod> for ReqHeadError {
+    fn from(e: http::method::InvalidMethod) -> Self {
+        Self::InvalidMethod(e)
+    }
+}
+
+impl From<http::uri::InvalidUriBytes> for ReqHeadError {
+    fn from(e: http::uri::InvalidUriBytes) -> Self {
+        Self::InvalidUriBytes(e)
     }
 }

@@ -8,7 +8,6 @@ edition = "2018"
 
 [dependencies]
 bytes = "0.4.12"
-err-derive = { version = "0.2.1", default-features = false }
 http = "0.1.19"
 httparse = "1.3.4"
 twoway = "0.2.1"

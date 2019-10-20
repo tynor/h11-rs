@@ -1,28 +1,12 @@
 use bytes::BytesMut;
-use err_derive::Error;
 use http::header::{HeaderName, HeaderValue};
 use http::HeaderMap;
 use httparse::{parse_chunk_size, parse_headers, Status, EMPTY_HEADER};
 
 use crate::event::Event;
 
-#[derive(Debug, Error)]
-pub enum BodyError {
-    #[error(display = "Too much data to write")]
-    TooMuchData,
-    #[error(display = "connection closed before finishing body")]
-    ConnectionClosedPrematurely,
-    #[error(display = "invalid chunk size")]
-    InvalidChunkSize,
-    #[error(display = "An IO error occurred: {}", _0)]
-    IO(#[error(source)] std::io::Error),
-    #[error(display = "An error occurred when parsing HTTP: {}", _0)]
-    HttpParse(#[error(source)] httparse::Error),
-}
-
-pub type BodyResult<T> = std::result::Result<T, BodyError>;
-
 pub use self::writer::BodyWriter;
+use std::fmt;
 
 pub mod writer {
     use std::io::{Cursor, Write};
@@ -278,6 +262,55 @@ impl Http10 {
         })
     }
 }
+
+#[derive(Debug)]
+pub enum BodyError {
+    TooMuchData,
+    ConnectionClosedPrematurely,
+    InvalidChunkSize,
+    IO(std::io::Error),
+    HttpParse(httparse::Error),
+}
+
+impl fmt::Display for BodyError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::TooMuchData => write!(f, "Too much data to write"),
+            Self::ConnectionClosedPrematurely => {
+                write!(f, "connection closed before finishing body")
+            }
+            Self::InvalidChunkSize => write!(f, "invalid chunk size"),
+            Self::IO(e) => write!(f, "An IO error occurred: {}", e),
+            Self::HttpParse(e) => {
+                write!(f, "An error occurred when parsing HTTP: {}", e)
+            }
+        }
+    }
+}
+
+impl std::error::Error for BodyError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::IO(e) => Some(e),
+            Self::HttpParse(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl From<std::io::Error> for BodyError {
+    fn from(e: std::io::Error) -> Self {
+        Self::IO(e)
+    }
+}
+
+impl From<httparse::Error> for BodyError {
+    fn from(e: httparse::Error) -> Self {
+        Self::HttpParse(e)
+    }
+}
+
+pub type BodyResult<T> = std::result::Result<T, BodyError>;
 
 #[cfg(test)]
 mod tests {
