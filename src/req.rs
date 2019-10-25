@@ -1,5 +1,6 @@
+use std::fmt;
+
 use bytes::{Bytes, BytesMut};
-use failure::Error;
 use http::header::{HeaderName, HeaderValue};
 use http::{HeaderMap, Method, Uri, Version};
 use httparse::{Request, EMPTY_HEADER};
@@ -17,7 +18,7 @@ pub struct ReqHead {
 }
 
 impl ReqHead {
-    pub(crate) fn from_buf(buf: &mut BytesMut) -> Result<Option<Self>, Error> {
+    pub(crate) fn from_buf(buf: &mut BytesMut) -> ReqHeadResult<Option<Self>> {
         let buf = match find_bytes(buf, &b"\r\n\r\n"[..]) {
             Some(n) => buf.split_to(n + 4).freeze(),
             None => return Ok(None),
@@ -285,5 +286,58 @@ mod tests {
             }
             .framing_method(),
         );
+    }
+}
+
+#[derive(Debug)]
+pub enum ReqHeadError {
+    Parse(httparse::Error),
+    InvalidMethod(http::method::InvalidMethod),
+    InvalidUriBytes(http::uri::InvalidUriBytes),
+}
+
+pub type ReqHeadResult<T> = std::result::Result<T, ReqHeadError>;
+
+impl fmt::Display for ReqHeadError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Parse(e) => {
+                write!(f, "An error occurred in parsing HTTP: {}", e)
+            }
+            Self::InvalidMethod(e) => {
+                write!(f, "Invalid method provided: {}", e)
+            }
+            Self::InvalidUriBytes(e) => {
+                write!(f, "Invalid URI bytes were provided: {}", e)
+            }
+        }
+    }
+}
+
+impl std::error::Error for ReqHeadError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Parse(e) => Some(e),
+            Self::InvalidMethod(e) => Some(e),
+            Self::InvalidUriBytes(e) => Some(e),
+        }
+    }
+}
+
+impl From<httparse::Error> for ReqHeadError {
+    fn from(e: httparse::Error) -> Self {
+        Self::Parse(e)
+    }
+}
+
+impl From<http::method::InvalidMethod> for ReqHeadError {
+    fn from(e: http::method::InvalidMethod) -> Self {
+        Self::InvalidMethod(e)
+    }
+}
+
+impl From<http::uri::InvalidUriBytes> for ReqHeadError {
+    fn from(e: http::uri::InvalidUriBytes) -> Self {
+        Self::InvalidUriBytes(e)
     }
 }

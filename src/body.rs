@@ -1,5 +1,6 @@
+use std::fmt;
+
 use bytes::BytesMut;
-use failure::{format_err, Error};
 use http::header::{HeaderName, HeaderValue};
 use http::HeaderMap;
 use httparse::{parse_chunk_size, parse_headers, Status, EMPTY_HEADER};
@@ -12,8 +13,8 @@ pub mod writer {
     use std::io::{Cursor, Write};
     use std::mem::size_of;
 
+    use crate::body::{BodyError, BodyResult};
     use bytes::{BufMut, Bytes, BytesMut};
-    use failure::{format_err, Error};
 
     #[derive(Clone, Copy, Debug)]
     pub enum BodyWriter {
@@ -26,9 +27,9 @@ pub mod writer {
     pub struct ContentLength(usize);
 
     impl ContentLength {
-        fn write_chunk(&mut self, data: Bytes) -> Result<Bytes, Error> {
+        fn write_chunk(&mut self, data: Bytes) -> BodyResult<Bytes> {
             if data.len() < self.0 {
-                return Err(format_err!("too much data to write"));
+                return Err(BodyError::TooMuchData);
             }
             self.0 -= data.len();
             Ok(data)
@@ -38,7 +39,7 @@ pub mod writer {
     fn write_chunked_chunk(
         buf: &mut BytesMut,
         data: &Bytes,
-    ) -> Result<Bytes, Error> {
+    ) -> BodyResult<Bytes> {
         if buf.capacity() < (4 + size_of::<usize>() + data.len()) {
             buf.reserve(4 + size_of::<usize>() + data.len());
         }
@@ -76,7 +77,7 @@ impl BodyReader {
     pub(crate) fn next_event(
         &mut self,
         buf: &mut BytesMut,
-    ) -> Result<Option<Event>, Error> {
+    ) -> BodyResult<Option<Event>> {
         match *self {
             Self::ContentLength(ref mut r) => r.next_event(buf),
             Self::Chunked(ref mut r) => r.next_event(buf),
@@ -84,10 +85,10 @@ impl BodyReader {
         }
     }
 
-    pub(crate) fn eof(&self) -> Result<Event, Error> {
+    pub(crate) fn eof(&self) -> BodyResult<Event> {
         match *self {
             Self::ContentLength(_) | Self::Chunked(_) => {
-                Err(format_err!("connection closed before finishing body"))
+                Err(BodyError::ConnectionClosedPrematurely)
             }
             Self::Http10 => Ok(Event::EndOfMessage(None)),
         }
@@ -110,10 +111,7 @@ impl From<FramingMethod> for BodyReader {
 pub struct ContentLength(usize);
 
 impl ContentLength {
-    fn next_event(
-        &mut self,
-        buf: &mut BytesMut,
-    ) -> Result<Option<Event>, Error> {
+    fn next_event(&mut self, buf: &mut BytesMut) -> BodyResult<Option<Event>> {
         if self.0 == 0 {
             return Ok(Some(Event::EndOfMessage(None)));
         }
@@ -150,10 +148,7 @@ impl HeaderPos {
 }
 
 impl Chunked {
-    fn next_event(
-        &mut self,
-        buf: &mut BytesMut,
-    ) -> Result<Option<Event>, Error> {
+    fn next_event(&mut self, buf: &mut BytesMut) -> BodyResult<Option<Event>> {
         use self::Chunked::*;
 
         loop {
@@ -161,7 +156,7 @@ impl Chunked {
                 Start => {
                     let r = parse_chunk_size(buf);
                     if r.is_err() {
-                        return Err(format_err!("invalid chunk size"));
+                        return Err(BodyError::InvalidChunkSize);
                     }
                     let st = r.unwrap();
                     match st {
@@ -260,7 +255,7 @@ impl Chunked {
 struct Http10;
 
 impl Http10 {
-    fn next_event(buf: &mut BytesMut) -> Result<Option<Event>, Error> {
+    fn next_event(buf: &mut BytesMut) -> BodyResult<Option<Event>> {
         Ok(if buf.is_empty() {
             None
         } else {
@@ -268,6 +263,55 @@ impl Http10 {
         })
     }
 }
+
+#[derive(Debug)]
+pub enum BodyError {
+    TooMuchData,
+    ConnectionClosedPrematurely,
+    InvalidChunkSize,
+    IO(std::io::Error),
+    HttpParse(httparse::Error),
+}
+
+impl fmt::Display for BodyError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::TooMuchData => write!(f, "Too much data to write"),
+            Self::ConnectionClosedPrematurely => {
+                write!(f, "connection closed before finishing body")
+            }
+            Self::InvalidChunkSize => write!(f, "invalid chunk size"),
+            Self::IO(e) => write!(f, "An IO error occurred: {}", e),
+            Self::HttpParse(e) => {
+                write!(f, "An error occurred when parsing HTTP: {}", e)
+            }
+        }
+    }
+}
+
+impl std::error::Error for BodyError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::IO(e) => Some(e),
+            Self::HttpParse(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl From<std::io::Error> for BodyError {
+    fn from(e: std::io::Error) -> Self {
+        Self::IO(e)
+    }
+}
+
+impl From<httparse::Error> for BodyError {
+    fn from(e: httparse::Error) -> Self {
+        Self::HttpParse(e)
+    }
+}
+
+pub type BodyResult<T> = std::result::Result<T, BodyError>;
 
 #[cfg(test)]
 mod tests {

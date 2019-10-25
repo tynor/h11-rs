@@ -1,5 +1,6 @@
+use std::fmt;
+
 use bytes::{Bytes, BytesMut};
-use failure::Error;
 use http::header::{HeaderName, HeaderValue};
 use http::{HeaderMap, Method, StatusCode, Version};
 use httparse::{Response, EMPTY_HEADER};
@@ -16,7 +17,7 @@ pub struct RespHead {
 }
 
 impl RespHead {
-    fn from_buf(buf: &mut BytesMut) -> Result<Option<Self>, Error> {
+    fn from_buf(buf: &mut BytesMut) -> Result<Option<Self>, RespHeadError> {
         let buf = match find_bytes(buf, &b"\r\n\r\n"[..]) {
             Some(n) => buf.split_to(n + 4).freeze(),
             None => return Ok(None),
@@ -109,6 +110,46 @@ impl RespHead {
             maybe_content_length(&self.headers)
                 .map_or(FramingMethod::Http10, FramingMethod::ContentLength)
         }
+    }
+}
+
+#[derive(Debug)]
+pub enum RespHeadError {
+    HttpParse(httparse::Error),
+    InvalidStatusCode(http::status::InvalidStatusCode),
+}
+
+impl fmt::Display for RespHeadError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::HttpParse(e) => {
+                write!(f, "An error occurred parsing HTTP: {}", e)
+            }
+            Self::InvalidStatusCode(e) => {
+                write!(f, "An invalid status code was provided: {}", e)
+            }
+        }
+    }
+}
+
+impl std::error::Error for RespHeadError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::HttpParse(e) => Some(e),
+            Self::InvalidStatusCode(e) => Some(e),
+        }
+    }
+}
+
+impl From<httparse::Error> for RespHeadError {
+    fn from(e: httparse::Error) -> Self {
+        Self::HttpParse(e)
+    }
+}
+
+impl From<http::status::InvalidStatusCode> for RespHeadError {
+    fn from(e: http::status::InvalidStatusCode) -> Self {
+        Self::InvalidStatusCode(e)
     }
 }
 

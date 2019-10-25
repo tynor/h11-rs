@@ -1,16 +1,15 @@
 use std::io::Read;
 use std::marker::PhantomData;
-use std::str;
+use std::{fmt, str};
 
 use bytes::{BufMut, Bytes, BytesMut};
-use failure::{format_err, Error};
 use http::{HeaderMap, Method, StatusCode, Version};
 
-use crate::body::BodyReader;
+use crate::body::{BodyError, BodyReader};
 use crate::event::Event;
-use crate::req::ReqHead;
+use crate::req::{ReqHead, ReqHeadError};
 use crate::resp::RespHead;
-use crate::state::{self, State, SwitchEvent};
+use crate::state::{self, State, StateError, SwitchEvent};
 
 #[allow(clippy::empty_enum)]
 pub enum Client {}
@@ -171,20 +170,20 @@ impl Inner {
                 Ok(None) => Ok(None),
                 Err(e) => {
                     self.state = self.state.client_error();
-                    Err(e)
+                    Err(e.into())
                 }
             },
             SendBody => {
                 let br = self.body_reader.as_mut().expect("reading body");
                 if !self.in_buf.is_empty() {
-                    br.next_event(&mut self.in_buf)
+                    br.next_event(&mut self.in_buf).map_err(Into::into)
                 } else if self.in_buf_closed {
-                    br.eof().map(Some)
+                    Ok(Some(br.eof()?))
                 } else {
                     Ok(None)
                 }
             }
-            Error => Err(format_err!("client in error state")),
+            Error => Err(self::Error::ClientErrorState),
             Done | MustClose | Closed | MightSwitchProtocol
             | SwitchedProtocol => Ok(None),
         }
@@ -196,15 +195,13 @@ impl Inner {
         }
         unsafe {
             r.read(self.in_buf.bytes_mut())
-                .map_err(|e| e.into())
+                .map_err(Into::into)
                 .and_then(|n| {
                     if n == 0 {
                         self.in_buf_closed = true;
                     } else {
                         if self.in_buf_closed {
-                            return Err(format_err!(
-                                "peer closed then sent data??"
-                            ));
+                            return Err(Error::DataFromClosedPeer);
                         }
                         self.in_buf.advance_mut(n);
                     }
@@ -286,5 +283,74 @@ impl Inner {
         }
 
         Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub enum Error {
+    ClientErrorState,
+    DataFromClosedPeer,
+    RequestHead(ReqHeadError),
+    HttpBody(BodyError),
+    IO(std::io::Error),
+    State(StateError),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::ClientErrorState => write!(f, "Client in error state"),
+            Self::DataFromClosedPeer => {
+                write!(f, "peer closed then sent data??")
+            }
+            Self::RequestHead(e) => write!(
+                f,
+                "An error occurred when reading the request head: {}",
+                e
+            ),
+            Self::HttpBody(e) => {
+                write!(f, "An error occurred in the http body: {}", e)
+            }
+            Self::IO(e) => write!(f, "An IO error occurred: {}", e),
+            Self::State(e) => {
+                write!(f, "An error occurred in internal state: {}", e)
+            }
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::RequestHead(e) => Some(e),
+            Self::HttpBody(e) => Some(e),
+            Self::IO(e) => Some(e),
+            Self::State(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl From<ReqHeadError> for Error {
+    fn from(e: ReqHeadError) -> Self {
+        Self::RequestHead(e)
+    }
+}
+
+impl From<BodyError> for Error {
+    fn from(e: BodyError) -> Self {
+        Self::HttpBody(e)
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        Self::IO(e)
+    }
+}
+
+impl From<StateError> for Error {
+    fn from(e: StateError) -> Self {
+        Self::State(e)
     }
 }
